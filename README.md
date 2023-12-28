@@ -92,8 +92,357 @@ Laravel Swagger integration reduces the time and resources required for manually
 
 
 # Step-by-Step Guide for Laravel Swagger Integration.
+Integrating Swagger with Laravel involves a few steps to generate API documentation for your Laravel application. Here's a step-by-step guide:
+
+### 1. Install Laravel Project
+```
+composer global require laravel/installer
+
+laravel new laravel-swagger-api-docs
+
+or
+
+composer create-project laravel/laravel laravel-swagger-api-docs
+
+```
+
+After the project has been created, start Laravel's local development server using the Laravel's Artisan CLI serve command:
+
+```
+cd laravel-swagger-api-docs
+ 
+php artisan serve
+
+```
+
+### 2. Database Configuration in laravel
+
+Open the .env file in the root of your Laravel project. This file contains environment-specific configuration, including database settings. Set the following parameters:
+
+```
+DB_CONNECTION=mysql
+DB_HOST=your_database_host
+DB_PORT=your_database_port
+DB_DATABASE=your_database_name
+DB_USERNAME=your_database_username
+DB_PASSWORD=your_database_password
+```
+***Example:***
+```
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=example_l_swagger
+DB_USERNAME=root
+DB_PASSWORD=1234
+
+```
+
+To create a database for a Laravel project, you'll need a database management system (DBMS) and a local development environment. Laravel supports various database systems, but MySQL is commonly used. So Install XAMPP or any DBMS.
 
 
+### 3. Install Laravel Passport and Configuration
+
+Laravel Passport, which is a Laravel package for API authentication using OAuth2. The below command will download and install the Passport package and its dependencies.
+
+```
+composer require laravel/passport
+
+php artisan passport:install
+```
+After install Update */config/database.php* file below 2 lines.
+
+```
+'mysql' => [
+    'charset' => 'utf8', // default value is 'utf8mb4'utf8mb4
+    'collation' => 'utf8_unicode_ci', // default value is 'utf8mb4_unicode_ci'
+]
+
+```
+
+***php artisan migrate*** is a Laravel command that applies pending database migrations, creating or updating database tables based on defined schema changes in your application. Here, we are using the default migration file and its related table.
+
+```
+php artisan migrate
+```
+
+Open your App\User model and make sure it implements the Laravel\Passport\HasApiTokens trait. In *\app\Models\User.php* use **Passport** instend of **Sanctum** for HasApiTokens.
+
+```
+use Laravel\Passport\HasApiTokens;
+
+class User extends Authenticatable
+{
+    use HasApiTokens, HasFactory, Notifiable;
+}
+```
+
+Update *config/auth.php*
+
+```
+'guards' => [
+        'web' => [
+            'driver' => 'session',
+            'provider' => 'users',
+        ],
+        'api' => [
+            'driver' => 'passport',
+            'provider' => 'users',
+            'hash' => false,
+        ],
+    ],
+```
+
+### 4. Install Swagger Required Packages and it's Configuration
+
+Install the necessary packages for Swagger integration:
+
+```
+composer require "darkaonline/l5-swagger"
+```
+
+Publish the configuration file to customize Swagger settings:
+
+```
+php artisan vendor:publish --provider "L5Swagger\L5SwaggerServiceProvider"
+```
+
+This will create a *config/l5-swagger.php* file.
+
+Configure *l5-swagger.php*. Open the generated */config/l5-swagger.php* file and uncomment the below line of code.
+
+```
+/* Open API 3.0 support */
+'passport' => [ // Unique name of security
+    'type' => 'oauth2', // The type of the security scheme. Valid values are "basic", "apiKey" or "oauth2".
+    'description' => 'Laravel passport oauth2 security.',
+    'in' => 'header',
+    'scheme' => 'https',
+    'flows' => [
+        "password" => [
+            "authorizationUrl" => config('app.url') . '/oauth/authorize',
+            "tokenUrl" => config('app.url') . '/oauth/token',
+            "refreshUrl" => config('app.url') . '/token/refresh',
+            "scopes" => []
+        ],
+    ],
+],
+
+```
+
+### 5. Create Routes
+
+```
+use App\Http\Controllers\Api\AuthController;
+
+Route::post('login', [AuthController::class, 'login']);
+Route::post('register', [AuthController::class, 'register']);
+```
+
+### 6. Create User Registration and Login Controller
+
+```
+php artisan make:controller Api/AuthController
+```
+
+### 7. Implement User Registration and Login Logic.
+
+```
+<?php
+
+    namespace App\Http\Controllers\Api;
+
+    use App\Http\Controllers\Controller;
+    use Illuminate\Http\Request;
+    use Hash;
+    use App\Models\User;
+
+    class AuthController extends Controller
+    {
+        /**
+        * @OA\Post(
+        *     path="/api/register",
+        *     operationId="registerUser",
+        *     tags={"Register"},
+        *     summary="Register a new user",
+        *     description="User Registration Endpoint",
+        *     @OA\RequestBody(
+        *         @OA\JsonContent(),
+        *         @OA\MediaType(
+        *             mediaType="multipart/form-data",
+        *             @OA\Schema(
+        *                 type="object",
+        *                 required={"name","email","password","password_confirmation"},
+        *                 @OA\Property(property="name",type="text"),
+        *                 @OA\Property(property="email",type="text"),
+        *                 @OA\Property(property="password",type="password"),
+        *                 @OA\Property(property="password_confirmation",type="password"),
+        *             ),
+        *         ),
+        *     ),
+        *     @OA\Response(
+        *         response="201",
+        *         description="User Registered Successfully",
+        *         @OA\JsonContent()
+        *     ),
+        *     @OA\Response(
+        *       response="200",
+        *       description="Registered Successfull",
+        *       @OA\JsonContent()
+        *     ),
+        *     @OA\Response(
+        *         response="422",
+        *         description="Unprocessable Entity",
+        *         @OA\JsonContent()
+        *     ),
+        *     @OA\Response(
+        *         response="400",
+        *         description="Bad Request",
+        *         @OA\JsonContent()
+        *     ),
+        * )
+        */
+
+
+
+        public function register(Request $request){
+            $validated = $request->validate(
+                [
+                    'name' => 'required',
+                    'email' => 'required|email|unique:users',
+                    'password' => 'required|confirmed'
+                ]
+            );
+            $data = $request->all();
+            $data['password']=Hash::make($data['password']);
+            $user = User::create($data);
+            $sucess['token'] = $user->createToken('authToken')->accessToken;
+            $sucess['name'] = $user->name;
+            return response()->json(['sucess'=>$sucess]);
+        }
+
+        //  Login API 
+        /**
+        * @OA\Post(
+        *     path="/api/login",
+        *     operationId="loginUser",
+        *     tags={"Login"},
+        *     summary="Login a user",
+        *     description="User Login Endpoint",
+        *     @OA\RequestBody(
+        *         @OA\JsonContent(),
+        *         @OA\MediaType(
+        *             mediaType="multipart/form-data",
+        *             @OA\Schema(
+        *                 type="object",
+        *                 required={"email","password"},
+        *                 @OA\Property(property="email",type="text"),
+        *                 @OA\Property(property="password",type="password"),
+        *             ),
+        *         ),
+        *     ),
+        *     @OA\Response(
+        *         response="201",
+        *         description="User Login Successfully",
+        *         @OA\JsonContent()
+        *     ),
+        *     @OA\Response(
+        *       response="200",
+        *       description="Login Successfull",
+        *       @OA\JsonContent()
+        *     ),
+        *     @OA\Response(
+        *         response="422",
+        *         description="Unprocessable Entity",
+        *         @OA\JsonContent()
+        *     ),
+        *     @OA\Response(
+        *         response="400",
+        *         description="Bad Request",
+        *         @OA\JsonContent()
+        *     ),
+        * )
+        */
+
+        public function login(Request $request){
+            $validated = $request->validate(
+                [
+                    'email' => 'required|email',
+                    'password' => 'required'
+                ]
+            );
+            if(!auth()->attempt($validated)){
+                    return response()->json(["error" => "Unauthorised"], 401);
+            }else{
+                $sucess['token'] = auth()->user()->createToken('authToken')->accessToken;
+                $sucess['user'] = auth()->user();
+
+                return response()->json(["success" => $sucess], 200);
+            }
+        }
+    
+    }
+```
+
+### 8. Update Version in \app\Http\Controllers\Controller.php file 
+
+```
+<?php
+    namespace App\Http\Controllers;
+
+    use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+    use Illuminate\Foundation\Validation\ValidatesRequests;
+    use Illuminate\Routing\Controller as BaseController;
+
+    /**
+    * @OA\Info(
+    *    title="Swagger with Laravel",
+    *    version="1.0.0",
+    * )
+    */
+    class Controller extends BaseController
+    {
+        use AuthorizesRequests, ValidatesRequests;
+    }
+
+```
+
+### 9. Generate Swagger Documentation:
+
+Generate Swagger documentation by running below command:
+```
+php artisan l5-swagger:generate
+```
+
+### 10. Run The Laravel Application and Access the Documentation
+
+```
+Start the Laravel development server by running the command:
+    php artisan serve
+
+Open your browser and navigate to the following address:
+    http://127.0.0.1:8000/
+
+To access the API documentation, go to:
+    http://127.0.0.1:8000/api/documentation
+```
+
+> Notes:
+
+```
+These commands clear specific Laravel caches:
+
+php artisan cache:clear: Clears the application cache.
+php artisan route:clear: Clears the route cache.
+php artisan config:clear: Clears the configuration cache.
+```
 
 # Conclusion
 > In the realm of web development, the fusion of Laravel with Swagger in 2024 emerges as a game-changer. This integration streamlines API documentation, fostering clarity and collaboration. Developers benefit from an interactive API explorer and standardized design practices, optimizing efficiency. As we navigate the dynamic landscape, Laravel Swagger Integration stands as a beacon of seamless development, where communication is clear, and innovation thrives. Here's to a future of efficient, collaborative, and well-documented APIs. Happy coding!
+
+<br>
+
+
+***If you like this post, feel free to share it.***
+
+***Thanks in Advance***
